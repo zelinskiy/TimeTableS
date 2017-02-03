@@ -3,14 +3,21 @@ module Main where
 
 import Data.Aeson
 import Data.Aeson.Types
-import Data.Text hiding (drop, reverse)
+import Data.Text hiding (drop, reverse, map)
 import Control.Applicative
 import Control.Monad
 import qualified Data.ByteString.Lazy as B
 import Network.HTTP.Conduit (simpleHttp)
 import GHC.Generics
+import Control.Monad.IO.Class
 
 import Lib
+
+{-
+TODO:
+Lenses
+
+-}
 
 data Faculty =
   Faculty { faculty_name  :: !Text
@@ -106,18 +113,31 @@ getJSON :: String -> IO B.ByteString
 getJSON url = simpleHttp url
 
 allFacsUrl = "http://cist.nure.ua/ias/app/tt/get_faculties"
-csFacUrl = "http://cist.nure.ua/ias/app/tt/get_groups?faculty_id=95"
-timetableUrl = "http://cist.nure.ua/ias/app/tt/get_schedule?group_id=5259356"
+facUrl = "http://cist.nure.ua/ias/app/tt/get_groups?faculty_id="
+timetableUrl = "http://cist.nure.ua/ias/app/tt/get_schedule?group_id="
 
-getFacultiesRoot :: IO (Either String FacultiesRoot)
-getFacultiesRoot = eitherDecode <$> (getJSON allFacsUrl)
+getFacultiesRoot :: IO (Maybe FacultiesRoot)
+getFacultiesRoot = decode <$> (getJSON allFacsUrl)
 
-getTimetableRoot :: IO (Either String TimeTable)
-getTimetableRoot = eitherDecode <$> (getJSON timetableUrl)
+getTimetableRoot :: Int -> IO (Maybe TimeTable)
+getTimetableRoot id = decode <$> (getJSON (timetableUrl ++ (show id)))
+
+getGroupsRoot :: Int -> IO (Maybe GroupsRoot)
+getGroupsRoot fid = decode <$> (getJSON (facUrl ++ (show fid)))
+
+getGroupsInFaculty' :: GroupsRoot -> [Group]
+getGroupsInFaculty' root = groups root
+
+getGroupsInFaculty :: Int -> IO (Maybe [Group])
+getGroupsInFaculty fid = fmap (fmap getGroupsInFaculty') (getGroupsRoot fid)
+
+allFacultiesIds' :: FacultiesRoot -> [Int]
+allFacultiesIds' = (map faculty_id) . faculties
+
+allFacultiesIds :: IO (Maybe [Int])
+allFacultiesIds = fmap (fmap allFacultiesIds') getFacultiesRoot
+
 
 main :: IO ()
 main = do
- d <- getTimetableRoot
- case d of
-  Left err -> putStrLn err
-  Right ps -> print ps
+ print "q"
