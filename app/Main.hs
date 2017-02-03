@@ -27,15 +27,32 @@ data FacultiesRoot =
 instance FromJSON FacultiesRoot
 instance ToJSON FacultiesRoot
 
-jsonURL :: String
-jsonURL = "http://cist.nure.ua/ias/app/tt/get_faculties"
+data Group =
+  Group { group_name  :: !Text
+        , group_id  :: Int
+        } deriving (Show,Generic)
 
-getJSON :: IO B.ByteString
-getJSON = simpleHttp jsonURL
+instance FromJSON Group
+instance ToJSON Group
+
+data GroupsRoot =
+  GroupsRoot { groups  :: [Group] } deriving (Show,Generic)
+
+instance FromJSON GroupsRoot
+instance ToJSON GroupsRoot
+
+allFacsUrl = "http://cist.nure.ua/ias/app/tt/get_faculties"
+csFacUrl = "http://cist.nure.ua/ias/app/tt/get_groups?faculty_id=95"
+
+getJSON :: String -> IO B.ByteString
+getJSON url = simpleHttp url
+
+getFacultiesRoot :: IO (Either String FacultiesRoot)
+getFacultiesRoot = eitherDecode <$> (getJSON allFacsUrl)
 
 main :: IO ()
 main = do
- d <- (eitherDecode <$> getJSON) :: IO (Either String FacultiesRoot)
+ d <- getFacultiesRoot
  case d of
   Left err -> putStrLn err
   Right ps -> print ps
