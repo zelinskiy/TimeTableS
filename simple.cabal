@@ -1,13 +1,13 @@
 name:                simple
-version:             0.1.0.0
-synopsis:            Initial project template from stack
-description:         Please see README.md
+version:             0.0.0.1
+synopsis:            NURE TimeTable Haskell API
+description:         NURE TimeTable Haskell API
 homepage:            https://github.com/githubuser/simple#readme
 license:             BSD3
 license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2017 Author name here
+author:              Nikita Yurchenko
+maintainer:          nic.yurchenko@gmail.com
+copyright:           2017 Nikita Yurchenko
 category:            Web
 build-type:          Simple
 extra-source-files:  README.md
@@ -17,6 +17,10 @@ library
   hs-source-dirs:      src
   exposed-modules:     Lib
   build-depends:       base >= 4.7 && < 5
+                       , aeson
+                       , text
+                       , http-conduit
+                       , bytestring
   default-language:    Haskell2010
 
 executable simple-exe
@@ -24,6 +28,10 @@ executable simple-exe
   main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
+                     , aeson
+                     , text
+                     , http-conduit
+                     , bytestring
                      , simple
   default-language:    Haskell2010
 
@@ -38,4 +46,4 @@ test-suite simple-test
 
 source-repository head
   type:     git
-  location: https://github.com/githubuser/simple
+  location: https://github.com/zelinskiy/TimeTableS
