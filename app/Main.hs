@@ -3,7 +3,8 @@ module Main where
 
 import Data.Aeson
 import Data.Aeson.Types
-import Data.Text hiding (drop, reverse, map)
+import Data.Text hiding (drop, reverse, map, concat)
+import Data.Text.Encoding as ENC
 import Control.Applicative
 import Control.Monad
 import qualified Data.ByteString.Lazy as B
@@ -137,7 +138,21 @@ allFacultiesIds' = (map faculty_id) . faculties
 allFacultiesIds :: IO (Maybe [Int])
 allFacultiesIds = fmap (fmap allFacultiesIds') getFacultiesRoot
 
+allGroups' :: [Int] -> IO (Maybe [GroupsRoot])
+allGroups' ids = fmap sequence $ sequence $ (map (\id -> decode <$> (getJSON (facUrl ++ (show id))))) ids
+
+allGroups = do
+  fids' <- allFacultiesIds
+  let fids = case fids' of
+              Just xs -> xs
+              Nothing -> []
+  gs <- allGroups' fids
+  let res = case gs of
+              Just x -> x
+              Nothing -> []
+  return $ concat $ map ((map (group_name) ) . groups) res
 
 main :: IO ()
 main = do
- print "q"
+  gs <- allGroups
+  putStrLn $ unpack $ mconcat $ map (\s -> s ++ "\n") gs
