@@ -96,8 +96,6 @@ data TimeTable =
             , daysTT        :: [Day]
             } deriving (Show,Generic)
 
-dropLast n = reverse . (drop n) . reverse
-
 instance ToJSON TimeTable where
   toJSON = genericToJSON defaultOptions {
              fieldLabelModifier = dropLast 2 }
@@ -106,9 +104,11 @@ instance FromJSON TimeTable where
   parseJSON = genericParseJSON defaultOptions {
                 fieldLabelModifier = dropLast 2 }
 
+dropLast n = reverse . (drop n) . reverse
 
-
-
+fmap2 f = fmap (fmap f)
+(<$$>) f x = f `fmap2` x
+infixl 4 <$$>
 
 getJSON :: String -> IO B.ByteString
 getJSON url = simpleHttp url
@@ -130,13 +130,13 @@ getGroupsInFaculty' :: GroupsRoot -> [Group]
 getGroupsInFaculty' root = groups root
 
 getGroupsInFaculty :: Int -> IO (Maybe [Group])
-getGroupsInFaculty fid = fmap (fmap getGroupsInFaculty') (getGroupsRoot fid)
+getGroupsInFaculty fid = getGroupsInFaculty' <$$> getGroupsRoot fid
 
 allFacultiesIds' :: FacultiesRoot -> [Int]
 allFacultiesIds' = (map faculty_id) . faculties
 
 allFacultiesIds :: IO (Maybe [Int])
-allFacultiesIds = fmap (fmap allFacultiesIds') getFacultiesRoot
+allFacultiesIds = allFacultiesIds' <$$> getFacultiesRoot
 
 allGroups' :: [Int] -> IO (Maybe [GroupsRoot])
 allGroups' ids = fmap sequence $ sequence $ (map (\id -> decode <$> (getJSON (facUrl ++ (show id))))) ids
@@ -155,4 +155,4 @@ allGroups = do
 main :: IO ()
 main = do
   gs <- allGroups
-  putStrLn $ unpack $ mconcat $ map (\s -> s ++ "\n") gs
+  putStrLn $ mconcat $ fmap (\s->unpack(s)++"\n") gs
