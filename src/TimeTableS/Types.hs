@@ -43,10 +43,10 @@ import Data.Text.Encoding as ENC
 
 
 data Faculty =
-  Faculty { faculty_name  :: !Text
+  Faculty { faculty_name  :: String
             , faculty_id  :: Int
-            , date_start  :: !Text
-            , date_end    :: !Text
+            , date_start  :: String
+            , date_end    :: String
             } deriving (Show,Generic)
 
 instance FromJSON Faculty
@@ -59,7 +59,7 @@ instance FromJSON FacultiesRoot
 instance ToJSON FacultiesRoot
 
 data Group =
-  Group { group_name  :: !Text
+  Group { group_name  :: String
         , group_id  :: Int
         } deriving (Show,Generic)
 
@@ -72,21 +72,21 @@ data GroupsRoot =
 instance FromJSON GroupsRoot
 instance ToJSON GroupsRoot
 
-data Teacher = Teacher { teacher_name :: !Text } deriving (Show,Generic)
+data Teacher = Teacher { teacher_name :: String } deriving (Show,Generic)
 
 instance FromJSON Teacher
 instance ToJSON Teacher
 
 data Auditory =
-  Auditory { auditory_name      :: !Text
-            , auditory_address  :: !Text
+  Auditory { auditory_name      :: String
+            , auditory_address  :: String
             } deriving (Show,Generic)
 
 instance FromJSON Auditory
 instance ToJSON Auditory
 
 data Lesson =
-  Lesson {  _subject    :: !Text
+  Lesson {  _subject    :: String
           , _type       :: Int
           , _time_start :: String
           , _time_end   :: String
@@ -114,7 +114,7 @@ instance FromJSON Day
 instance ToJSON Day
 
 data TimeTable =
-  TimeTable { group_nameTT  :: !Text
+  TimeTable { group_nameTT  :: String
             , daysTT        :: [Day]
             } deriving (Show,Generic)
 
