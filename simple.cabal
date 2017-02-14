@@ -39,6 +39,7 @@ executable simple-exe
                      , bytestring
                      , simple
                      , split
+                     , time
   default-language:    Haskell2010
 
 test-suite simple-test

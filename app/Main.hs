@@ -7,6 +7,8 @@ import Control.Monad
 import Data.List as List
 import Text.Read
 import Data.Char
+import Data.Time.Clock (utctDay, getCurrentTime)
+import Data.Time.Calendar (toGregorian)
 
 import TimeTableS.Types
 import TimeTableS.Settings
@@ -137,6 +139,8 @@ selectGroupIO = do
   putStrLn $ "Selected group " ++ show gid
   saveSettings "settings.txt" [("group_id", show gid)]
 
+--------------------------------------------------------------------------------
+
 {-
 data Command =
     ShowAllFacs
@@ -165,6 +169,8 @@ executeCommand cmd = case cmd of
 storedGroupId :: IO (Maybe String)
 storedGroupId = findSetting "group_id" <$> loadSettings "settings.txt"
 
+--------------------------------------------------------------------------------
+
 loadDays :: String -> IO [Day]
 loadDays gid = do
   tt <- getTimetableRoot gid
@@ -172,14 +178,12 @@ loadDays gid = do
     Just x  -> return $ daysTT x
     Nothing -> error $ "cannot load timetable for gid " ++ gid
 
-
-
 allSubjects :: String -> IO [String]
 allSubjects gid = do
-  days <- loadDays "5259356"
+  days <- loadDays gid
   return $
-    --concat $
-    --flip (++) "\n" <$$>
+  --concat $
+  --flip (++) "\n" <$$>
     sort $
     nub $
     concat $
@@ -187,7 +191,24 @@ allSubjects gid = do
     lessons <$>
     days
 
+--------------------------------------------------------------------------------
+
+
+data Date = Date Int Int Int -- :: Date Year Month Day
+  deriving (Show, Eq, Ord)
+
+getDate :: IO Date
+getDate = do
+  time' <- getCurrentTime
+  let date' = toGregorian $ utctDay $ time'
+  let date = (\(y,m,d) -> Date (fromInteger y) m d) date'
+  return date
+
+--------------------------------------------------------------------------------
+
+
 main :: IO ()
 main = do
-  subs <- allSubjects "5259356"
-  putStrLn $ concatWithElem "\n" subs
+  d <- getDate
+  print $ d <= (Date 2016 02 14)
+  putStrLn $ "kek"
