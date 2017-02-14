@@ -2,6 +2,7 @@ module TimeTableS.Settings(
     Settings
   , loadSettings
   , saveSettings
+  , findSetting
 ) where
 
 import Data.List.Split as Split

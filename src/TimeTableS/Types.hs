@@ -114,8 +114,8 @@ instance FromJSON Day
 instance ToJSON Day
 
 data TimeTable =
-  TimeTable { group_nameTT  :: String
-            , daysTT        :: [Day]
+  TimeTable { group_nameTT  :: !String
+            , daysTT        :: ![Day]
             } deriving (Show,Generic)
 
 instance ToJSON TimeTable where
