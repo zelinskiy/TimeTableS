@@ -18,111 +18,96 @@ import Data.Maybe
 import Text.Read
 import Control.Monad  (join)
 import Data.Bifunctor (bimap)
+import Data.Char
 
---import Lib
 import TimeTableS.Types
+import TimeTableS.Settings
+import TimeTableS.Utils ((<$$>), orderBy)
 
 {-
 TODO:
-Lenses
+Save groupId in settings
+Show timetable for saved group
+Storing timetables locally
+Show
+* Lenses
+
 -}
 
-prefix_allfacs = "http://cist.nure.ua/ias/app/tt/get_faculties"
-prefix_fac = "http://cist.nure.ua/ias/app/tt/get_groups?faculty_id="
-prefix_timetable = "http://cist.nure.ua/ias/app/tt/get_schedule?group_id="
+data Command =
+    ShowAllFacs
+  | ShowGroupsOnFac Int
+  | SelectGroup Int
+  | ShowSelectedGroup
+    deriving (Eq)
 
-fmap2 f = fmap (fmap f)
-(<$$>) f x = f `fmap2` x
-infixl 4 <$$>
+--------------------------------------------------------------------------------
 
-getJSON :: String -> IO B.ByteString
-getJSON url = simpleHttp url
+getJSON :: FromJSON a => String -> IO (Maybe a)
+getJSON url = decode <$>simpleHttp url
 
 getFacultiesRoot :: IO (Maybe FacultiesRoot)
-getFacultiesRoot = decode <$> getJSON prefix_allfacs
+getFacultiesRoot = getJSON "http://cist.nure.ua/ias/app/tt/get_faculties"
 
 getTimetableRoot :: Int -> IO (Maybe TimeTable)
-getTimetableRoot id = decode <$> getJSON (prefix_timetable ++ show id)
+getTimetableRoot id = getJSON ("http://cist.nure.ua/ias/app/tt/get_schedule?group_id=" ++ show id)
 
 getGroupsRoot :: Int -> IO (Maybe GroupsRoot)
-getGroupsRoot fid = decode <$> getJSON (prefix_fac ++ show fid)
+getGroupsRoot fid = getJSON ("http://cist.nure.ua/ias/app/tt/get_groups?faculty_id=" ++ show fid)
 
-
-
-getGroupsInFaculty' :: GroupsRoot -> [Group]
-getGroupsInFaculty' root = groups root
 
 getGroupsInFaculty :: Int -> IO (Maybe [Group])
-getGroupsInFaculty fid = getGroupsInFaculty' <$$> getGroupsRoot fid
-
-
-
-allFacultiesIds' :: FacultiesRoot -> [Int]
-allFacultiesIds' = (map faculty_id) . faculties
+getGroupsInFaculty fid = inner <$$> getGroupsRoot fid
+  where inner = groups
 
 allFacultiesIds :: IO (Maybe [Int])
-allFacultiesIds = allFacultiesIds' <$$> getFacultiesRoot
-
-
+allFacultiesIds = inner <$$> getFacultiesRoot
+  where inner = (map faculty_id) . faculties
 
 allGroups' :: [Int] -> IO (Maybe [GroupsRoot])
 allGroups' ids= fmap sequence . sequence $ map getGroupsRoot ids
 
+--------------------------------------------------------------------------------
 
---allGroups :: IO (Maybe [(String, [(String, Int)])])
+withShallowIds :: [(Int, a)] -> [((Int, Int), a)]
+withShallowIds rows = res
+  where realIds = map fst rows
+        data_ = map snd rows
+        withSimpleIds = zipWith (\re si -> (re, si)) realIds [1..]
+        res = zipWith (,) withSimpleIds data_
+
+idWithName :: [(Int, String)] -> String
+idWithName rows = concat $ map compact rows
+  where compact (index, name) = "(" ++ show index ++ ") " ++name ++ "\n"
 
 
-
-type SettingsRow = (String, String)
-type Settings = [SettingsRow]
-fromSetingsRow s = (k,v)
-  where splitted = Split.splitOn "=" $ filter ((/=) ' ') s
-        k = head splitted
-        v = last splitted
-toSetingsRow (k,v) = k ++ " = " ++ v ++ "\n"
-
-findSetting :: String -> Settings -> Maybe String
-findSetting key = fmap snd . List.find pred
-    where pred (k,v) = k == key
-
-parseSettings :: String -> Settings
-parseSettings = (map fromSetingsRow) . (Split.splitOn "\n") . (filter $ (/=) ' ')
-
-loadSettings :: FilePath -> IO Settings
-loadSettings path = parseSettings <$> readFile path
-
-saveSettings :: FilePath -> Settings -> IO ()
-saveSettings path settings = writeFile path settings'
-    where settings' = foldl (++) "" $ map toSetingsRow settings
-
-executeCommand :: [String] -> IO String
-executeCommand ("groups":[]) = do
-  gs <- undefined
-  return $ mconcat $ fmap (\s->T.unpack(s)++"\n") gs
-
-selectFacIdIO :: IO Int
-selectFacIdIO = do
-  facs' <- faculties <$$> getFacultiesRoot
-  let facs = case facs' of
+loadFaculties :: IO [Faculty]
+loadFaculties = do
+  facs <- faculties <$$> getFacultiesRoot
+  case facs of
         Nothing -> error "Unable to load from server"
-        Just fs -> map pair fs
-            where pair f = (faculty_name f, faculty_id f)
-  let prettyPrintedFacs = concat $ map compact facs
-        where compact (name, index) = "(" ++ show index ++ ") " ++name ++ "\n"
+        Just fs -> return fs
 
+showFacs :: [Faculty] -> IO ()
+showFacs facs = do
+  let idNamePairs = map (\f -> (faculty_id f, faculty_name f)) facs
   putStrLn "(id) Name"
-  putStrLn prettyPrintedFacs
+  putStrLn $ idWithName idNamePairs
   putStrLn "enter selected_fid"
-  selected_fid <- getLine
-  let fid = case readMaybe selected_fid :: Maybe Int of
+
+selectFacId :: IO Int
+selectFacId = do
+  facs <- loadFaculties
+  showFacs facs
+  fid' <- getLine
+  let fid = case readMaybe fid' :: Maybe Int of
         Just x -> x
         Nothing -> error "Unable to parse fid"
 
-  unless (fid `elem` map snd facs) $ error "Unable to find fac"
+  unless (fid `elem` map faculty_id facs) $ error "Unable to find fac"
   return fid
 
-orderBy selector xs = sortBy comparison xs
-        where comparison e1 e2 = uncurry compare $ join bimap selector (e1, e2)
+
 
 selectGroupIdOnFacIO :: Int -> IO Int
 selectGroupIdOnFacIO fid = do
@@ -130,27 +115,55 @@ selectGroupIdOnFacIO fid = do
   let gs = case gs' of
         Nothing -> error "Unable to load from server"
         Just xs -> (orderBy fst . map pair) xs
-            where pair g = (group_name g, group_id g)
-  let simplifiedGids = zipWith (\real simple -> (simple, real)) (map snd gs) [1..]
-  let prettyPrintedGroups = concat $ map compact gs
-        where replaceIndex i = show $ fst $ fromJust $ find ((==) i . snd) simplifiedGids
-              compact (name, index) = "(" ++ replaceIndex index ++ ") " ++name ++ "\n"
+            where pair g = (group_id g, group_name g)
 
-  putStrLn prettyPrintedGroups
+  let _withShallowIds = withShallowIds gs
+  let prettyPrint ((_,si),name) = "("++show si++")"++name++"\n"
+  let prettyPrinted = concat $ map prettyPrint _withShallowIds
+  let simplifiedGids = map fst _withShallowIds
+
+  putStrLn prettyPrinted
   selected_sgid <- getLine
   let sgid = case readMaybe selected_sgid :: Maybe Int of
         Just x -> x
         Nothing -> error "Unable to parse sgid"
 
-  let gid = case find (\(si, re) -> si == sgid) simplifiedGids of
-        Just (si, re) -> re
+  let gid = case find (\(re, si) -> si == sgid) simplifiedGids of
+        Just (re, si) -> re
         Nothing -> error $ "Cant find group " ++ show sgid
   return gid
 
+selectGroupIO :: IO ()
+selectGroupIO = do
+  fid <- selectFacId
+  gid <- selectGroupIdOnFacIO fid
+  putStrLn $ "Selected group " ++ show gid
+  saveSettings "settings.txt" [("group_id", show gid)]
+
+{-
+data Command =
+    ShowAllFacs
+  | ShowGroupsOnFac Int
+  | SelectGroup Int
+  | ShowSelectedGroup
+    deriving (Eq)
+-}
+
+parseInt :: String -> Maybe Int
+parseInt n
+    | all isDigit n = Just $ read n
+    | otherwise     = Nothing
+
+parseCommand :: String -> Maybe Command
+parseCommand cmd = case cmd of
+  "facs" -> Just ShowAllFacs
+  'f':'a':'c':' ':n -> Just . ShowGroupsOnFac =<< parseInt n
+  _ -> Nothing
+
+executeCommand :: Command -> IO ()
+executeCommand cmd = case cmd of
+  ShowAllFacs -> loadFaculties >>= showFacs
+
 main :: IO ()
 main = do
-
-  fid <- selectFacIdIO
-  gid <- selectGroupIdOnFacIO fid
-
-  putStrLn $ "Selected group " ++ show gid
+  executeCommand ShowAllFacs
