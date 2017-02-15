@@ -6,20 +6,24 @@ import Network.HTTP.Conduit (simpleHttp)
 import Control.Monad
 import Data.List as List
 import Text.Read
-import Data.Char
-import Data.Time.Clock (utctDay, getCurrentTime)
-import Data.Time.Calendar (toGregorian)
+
 
 import TimeTableS.Types
 import TimeTableS.Settings
 import TimeTableS.Utils
+import TimeTableS.Date
 
 {-
 TODO:
+
+Shall we trust our json (e.g. in getLessonDates)?
+    maybe check thar (_date_start & _date_end) OR _dates?
+
 Save groupId in settings
 Show timetable for saved group
 Storing timetables locally
 Show
+
 * Lenses
 
 -}
@@ -141,21 +145,6 @@ selectGroupIO = do
 
 --------------------------------------------------------------------------------
 
-{-
-data Command =
-    ShowAllFacs
-  | ShowGroupsOnFac Int
-  | SelectGroup Int
-  | ShowSelectedGroup
-    deriving (Eq)
--}
-
-
-parseInt :: String -> Maybe Int
-parseInt n
-    | all isDigit n = Just $ read n
-    | otherwise     = Nothing
-
 parseCommand :: String -> Maybe Command
 parseCommand cmd = case cmd of
   "facs"            -> Just ShowAllFacs
@@ -191,24 +180,51 @@ allSubjects gid = do
     lessons <$>
     days
 
+getLessonDatesHelper :: Either String Date
+                     -> Either String Date
+                     -> Int
+                     -> [Date]
+getLessonDatesHelper eitherBegin eitherEnd step = case eitherBegin of
+  Right begin -> case eitherEnd of
+    Right end -> rangeDates begin end step
+    Left err -> error err
+  Left err -> error err
+
+--TODO: frequency = 2 to 4 per month, not only every week
+getLessonDates :: Lesson -> [Date]
+getLessonDates lesson =
+  let freq = 7
+      subj = _subject lesson
+  in case _date_start lesson of
+      Just datestart -> case _date_end lesson of
+        Just dateend -> getLessonDatesHelper
+                          (fromTimeTableFormat datestart)
+                          (fromTimeTableFormat dateend)
+                          freq
+        Nothing -> error $ "Cant take date_end of lesson " ++ subj
+      Nothing -> case _dates lesson of
+        Just dates -> map (forceEither . fromTimeTableFormat) dates
+        Nothing ->
+          error $ "Lesson without both dates and date_start: " ++ subj
+
+getLessonsOnDate :: String -> Date -> IO [Lesson]
+getLessonsOnDate gid date = do
+  allLessons <- concat <$> lessons <$$> loadDays gid
+  return
+    $ map     fst
+    $ filter  (\(_, ds) -> date `elem` ds)
+    $ map     (\l       -> (l, getLessonDates l))
+    $ allLessons
+
 --------------------------------------------------------------------------------
 
-
-data Date = Date Int Int Int -- :: Date Year Month Day
-  deriving (Show, Eq, Ord)
-
-getDate :: IO Date
-getDate = do
-  time' <- getCurrentTime
-  let date' = toGregorian $ utctDay $ time'
-  let date = (\(y,m,d) -> Date (fromInteger y) m d) date'
-  return date
-
---------------------------------------------------------------------------------
 
 
 main :: IO ()
 main = do
-  d <- getDate
-  print $ d <= (Date 2016 02 14)
+  todayDate <- getCurrentDate
+  todayLessons <- getLessonsOnDate "5259356" (addDaysToDate 7 todayDate)
+  putStrLn $ concat
+    $ map (\l -> _subject l ++ ":" ++ _time_start l ++ "\n")
+    $ todayLessons
   putStrLn $ "kek"
