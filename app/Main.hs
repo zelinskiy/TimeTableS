@@ -44,10 +44,12 @@ getFacultiesRoot :: IO (Maybe FacultiesRoot)
 getFacultiesRoot = getJSON "http://cist.nure.ua/ias/app/tt/get_faculties"
 
 getTimetableRoot :: String -> IO (Maybe TimeTable)
-getTimetableRoot gid = getJSON ("http://cist.nure.ua/ias/app/tt/get_schedule?group_id=" ++ gid)
+getTimetableRoot gid =
+  getJSON ("http://cist.nure.ua/ias/app/tt/get_schedule?group_id=" ++ gid)
 
 getGroupsRoot :: Int -> IO (Maybe GroupsRoot)
-getGroupsRoot fid = getJSON ("http://cist.nure.ua/ias/app/tt/get_groups?faculty_id=" ++ show fid)
+getGroupsRoot fid =
+  getJSON ("http://cist.nure.ua/ias/app/tt/get_groups?faculty_id=" ++ show fid)
 
 getGroupsInFaculty :: Int -> IO (Maybe [Group])
 getGroupsInFaculty fid = inner <$$> getGroupsRoot fid
@@ -180,32 +182,23 @@ allSubjects gid = do
     lessons <$>
     days
 
-getLessonDatesHelper :: Either String Date
-                     -> Either String Date
-                     -> Int
-                     -> [Date]
-getLessonDatesHelper eitherBegin eitherEnd step = case eitherBegin of
-  Right begin -> case eitherEnd of
-    Right end -> rangeDates begin end step
-    Left err -> error err
-  Left err -> error err
 
 --TODO: frequency = 2 to 4 per month, not only every week
 getLessonDates :: Lesson -> [Date]
-getLessonDates lesson =
-  let freq = 7
-      subj = _subject lesson
-  in case _date_start lesson of
-      Just datestart -> case _date_end lesson of
-        Just dateend -> getLessonDatesHelper
-                          (fromTimeTableFormat datestart)
-                          (fromTimeTableFormat dateend)
-                          freq
-        Nothing -> error $ "Cant take date_end of lesson " ++ subj
-      Nothing -> case _dates lesson of
-        Just dates -> map (forceEither . fromTimeTableFormat) dates
-        Nothing ->
-          error $ "Lesson without both dates and date_start: " ++ subj
+getLessonDates lesson = res where
+  freq = 7
+  subj = _subject lesson
+  res =
+    case ((,) <$> _date_start lesson <*> _date_end lesson , _dates lesson) of
+      (Just (begin, end), Nothing) -> forceEither $ rangeDates
+                                      <$> (fromTimeTableFormat begin)
+                                      <*> (fromTimeTableFormat end)
+                                      <*> Right freq
+      (Nothing, Just dates) -> (forceEither . fromTimeTableFormat) <$> dates
+      (Nothing, Nothing) ->
+        error $ "Lesson without both dates and date_start: " ++ subj
+
+
 
 getLessonsOnDate :: String -> Date -> IO [Lesson]
 getLessonsOnDate gid date = do
@@ -223,7 +216,7 @@ getLessonsOnDate gid date = do
 main :: IO ()
 main = do
   todayDate <- getCurrentDate
-  todayLessons <- getLessonsOnDate "5259356" (addDaysToDate 7 todayDate)
+  todayLessons <- getLessonsOnDate "5259356" (addDaysToDate 1 todayDate)
   putStrLn $ concat
     $ map (\l -> _subject l ++ ":" ++ _time_start l ++ "\n")
     $ todayLessons
