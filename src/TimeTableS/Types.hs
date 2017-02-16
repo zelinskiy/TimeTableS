@@ -27,12 +27,14 @@ module TimeTableS.Types
     , _dates
     , _teachers
     , _auditories
-, Day
+, WeekDay
     , weekday
     , lessons
 , TimeTable
     , group_nameTT
     , daysTT
+, showTypeLesson
+, showShortTypeLesson
 ) where
 
 import Data.Aeson
@@ -97,6 +99,39 @@ data Lesson =
           , _auditories :: [Auditory]
           } deriving (Show,Generic)
 
+showTypeLesson :: Int -> String
+showTypeLesson i = case i of
+  0  -> "Практическое занятие"
+  1  -> "Лабораторная работа"
+  2  -> "Лекция"
+  3  -> "Семинар"
+  4  -> "Консультация"
+  5  -> "Самостоятельная работа студента"
+  6  -> "Зачет"
+  7  -> "Экзамен"
+  8  -> "Презентация"
+  9  -> "Мастер-класс"
+  10 -> "День открытых дверей"
+  11 -> "Экскурсия"
+  12 -> "Фильм"
+  13 -> "Концерт, научное шоу"
+  14 -> "Конкурс"
+  15 -> "Конференция, научная школа"
+  16 -> "Круглый стол"
+  17 -> "Олимпиада"
+  18 -> "Выставка"
+  19 -> "Курсовая работа"
+  _  -> "Unknown type"
+
+showShortTypeLesson :: Int -> String
+showShortTypeLesson i = case i of
+  0  -> "ПЗ"
+  1  -> "ЛР"
+  2  -> "ЛК"
+  4  -> "КС"
+  7  -> "ЭК"
+  _  -> "??"
+
 instance ToJSON Lesson where
   toJSON = genericToJSON defaultOptions {
              fieldLabelModifier = drop 1 }
@@ -105,17 +140,17 @@ instance FromJSON Lesson where
   parseJSON = genericParseJSON defaultOptions {
                 fieldLabelModifier = drop 1 }
 
-data Day =
-  Day { weekday  :: Int
+data WeekDay =
+  WeekDay { weekday  :: Int
       , lessons  :: [Lesson]
       } deriving (Show,Generic)
 
-instance FromJSON Day
-instance ToJSON Day
+instance FromJSON WeekDay
+instance ToJSON WeekDay
 
 data TimeTable =
   TimeTable { group_nameTT  :: !String
-            , daysTT        :: ![Day]
+            , daysTT        :: ![WeekDay]
             } deriving (Show,Generic)
 
 instance ToJSON TimeTable where

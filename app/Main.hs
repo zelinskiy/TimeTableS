@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes, GADTs, TypeSynonymInstances #-}
 module Main where
 
 import Data.Aeson
@@ -6,7 +6,9 @@ import Network.HTTP.Conduit (simpleHttp)
 import Control.Monad
 import Data.List as List
 import Text.Read
-import qualified Data.Time.Calendar as C
+import Data.Time.Calendar
+import Data.Maybe
+import Data.List.Split (splitOn)
 
 import TimeTableS.Types
 import TimeTableS.Settings
@@ -27,13 +29,6 @@ Show
 * Lenses
 
 -}
-
-data Command =
-    ShowAllFacs
-  | ShowGroupsOnFac Int
-  | SelectGroup Int
-  | ShowSelectedGroup
-    deriving (Eq)
 
 --------------------------------------------------------------------------------
 
@@ -147,22 +142,7 @@ selectGroupIO = do
 
 --------------------------------------------------------------------------------
 
-parseCommand :: String -> Maybe Command
-parseCommand cmd = case cmd of
-  "facs"            -> Just ShowAllFacs
-  'f':'a':'c':' ':n -> Just . ShowGroupsOnFac =<< parseInt n
-  _                 -> Nothing
-
-executeCommand :: Command -> IO ()
-executeCommand cmd = case cmd of
-  ShowAllFacs -> loadFaculties >>= showFacs
-
-storedGroupId :: IO (Maybe String)
-storedGroupId = findSetting "group_id" <$> loadSettings "settings.txt"
-
---------------------------------------------------------------------------------
-
-loadDays :: String -> IO [Day]
+loadDays :: String -> IO [WeekDay]
 loadDays gid = do
   tt <- getTimetableRoot gid
   case tt of
@@ -184,7 +164,7 @@ allSubjects gid = do
 
 
 --TODO: frequency = 2 to 4 per month, not only every week
-getLessonDates :: Lesson -> [C.Day]
+getLessonDates :: Lesson -> [Day]
 getLessonDates lesson = res where
   freq = 7
   subj = _subject lesson
@@ -193,31 +173,126 @@ getLessonDates lesson = res where
       <$> (fromTimeTableFormat <$> _date_start lesson)
       <*> (fromTimeTableFormat <$> _date_end   lesson)
       ,   (fromTimeTableFormat <$$> _dates     lesson)) of
-        (Just (begin, end), Nothing) -> [begin, (C.addDays freq begin) .. end]
-        (Nothing, Just dates) -> dates
+        (Just (begin, end), Nothing)  -> [begin, (addDays freq begin) .. end]
+        (Nothing, Just dates)         -> dates
         (Nothing, Nothing) ->
           error $ "Lesson without both dates and date_start: " ++ subj
 
 
 
-getLessonsOnDate :: String -> C.Day -> IO [Lesson]
-getLessonsOnDate gid date = do
+getLessonsOnDate :: String -> Day -> IO [Lesson]
+getLessonsOnDate gid date = getLessonsOnDates gid [date]
+
+getLessonsOnDates :: String -> [Day] -> IO [Lesson]
+getLessonsOnDates gid dates = do
   allLessons <- concat <$> lessons <$$> loadDays gid
   return
     $ map     fst
-    $ filter  (\(_, ds) -> date `elem` ds)
+    $ filter  (\(_, ds) -> or $ (==) <$> dates <*> ds)
     $ map     (\l       -> (l, getLessonDates l))
     $ allLessons
 
+--TODO: groupBy headers
+showLessonsWithDay :: [Lesson] -> Day -> IO ()
+showLessonsWithDay lessons day =
+      putStrLn
+    $ (++) (show day)
+    $ concat
+    $ map (\l -> _subject l ++ " : (" ++ _time_start l ++ ")\n")
+    lessons
+
+
+showLessons :: [Lesson] -> IO ()
+showLessons =
+    let margin = replicate 12 ' '
+    in  putStrLn
+      . concat
+      . map (\l -> "("  ++ showShortTypeLesson (_type l) ++ ")["
+                        ++ _time_start l ++ "]"
+                        ++ _subject l ++ "\n" ++ margin ++"|"
+                        ++ intercalate ("\n" ++ margin ++"|")
+                                (teacher_name <$> _teachers l) ++ "\n")
+
+
 --------------------------------------------------------------------------------
 
+--TODO: split in multiple instances (GADTs?)
+data Command =
+    Facs
+  | Groups        Int
+  | SelectGroup   Int
+  | SelectedGroup
+  | Today
+  | OnDay         Day
+  | SinceToday    Int
+  | SinceDay      Day Int
+    deriving (Show, Eq)
 
+data Arg =
+    IArg Int
+  | SArg String
+  | DArg Day
+    deriving (Show, Eq)
+
+parseArg :: String -> Maybe Arg
+parseArg s =
+  let splitted  = sequence $  parseInt <$> splitOn "." s
+  in case length  <$> splitted of
+    Just 3  -> Just $ DArg $ fromTimeTableFormat s
+    Just 1  -> IArg <$> parseInt s
+    Nothing -> Nothing
+
+
+preprocessCommand :: String -> (String, [Arg])
+preprocessCommand s = (cmd, args) where
+  splitted  = splitOn " " s
+  cmd       = head splitted
+  args      = catMaybes $ parseArg <$> tail splitted
+
+parseCommand :: String -> Maybe Command
+parseCommand cmd = case preprocessCommand cmd of
+  ("facs", _)                         -> Just $ Facs
+  ("groups", [IArg fid])              -> Just $ Groups fid
+  ("wassup", [DArg date, IArg days])  -> Just $ SinceDay date days
+  ("wassup", [IArg days, DArg date])  -> Just $ SinceDay date days
+  ("wassup", [DArg date])             -> Just $ OnDay date
+  ("wassup", [IArg days])             -> Just $ SinceToday days
+  ("wassup", [])                      -> Just $ Today
+  _                                   -> Nothing
+
+executeCommand :: Command -> IO ()
+executeCommand cmd = do
+  today <- getCurrentDay
+  --very unsafe
+  gid <- fromJust <$> storedGroupId
+  case cmd of
+    Facs                -> loadFaculties >>= showFacs
+    Groups fid          -> loadGroups fid >>= showGroups
+    SinceDay date days  -> getLessonsOnDate gid (addDays (toInteger days) date)
+                            >>= showLessons
+    OnDay date          -> getLessonsOnDate gid date >>= showLessons
+    SinceToday days     -> do
+                        let dates = [today .. addDays (toInteger days) today]
+                        lessons <- getLessonsOnDates gid dates
+                        showLessons lessons
+    Today               -> getLessonsOnDate gid today >>= showLessons
+
+storedGroupId :: IO (Maybe String)
+storedGroupId = findSetting "group_id" <$> loadSettings "settings.txt"
+
+--------------------------------------------------------------------------------
 
 main :: IO ()
 main = do
-  todayDate <- getCurrentDay
-  todayLessons <- getLessonsOnDate "5259356" (C.addDays 1 todayDate)
-  putStrLn $ concat
-    $ map (\l -> _subject l ++ ":" ++ _time_start l ++ "\n")
-    $ todayLessons
-  putStrLn $ "kek"
+  gid <- storedGroupId
+  unless (isJust gid) $ do
+    putStrLn "(!!) First you need to select your group:\n"
+    selectGroupIO
+    return ()
+
+  maybeCmd <- parseCommand <$> getLine
+  unless (isJust maybeCmd)
+    (putStrLn "Unable to parse command" >> return ())
+  let cmd = fromJust maybeCmd
+  executeCommand cmd
+  putStrLn "done"

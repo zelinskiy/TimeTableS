@@ -7,6 +7,7 @@ module TimeTableS.Settings(
 
 import Data.List.Split as Split
 import Data.List as List
+import qualified Data.ByteString.Char8 as BS
 
 type SettingsRow = (String, String)
 type Settings = [SettingsRow]
@@ -24,7 +25,7 @@ parseSettings :: String -> Settings
 parseSettings = (map fromSetingsRow) . (Split.splitOn "\n") . (filter $ (/=) ' ')
 
 loadSettings :: FilePath -> IO Settings
-loadSettings path = parseSettings <$> readFile path
+loadSettings path = parseSettings <$> BS.unpack <$> BS.readFile path
 
 saveSettings :: FilePath -> Settings -> IO ()
 saveSettings path settings = writeFile path settings'
