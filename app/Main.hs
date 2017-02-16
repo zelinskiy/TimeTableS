@@ -6,7 +6,7 @@ import Network.HTTP.Conduit (simpleHttp)
 import Control.Monad
 import Data.List as List
 import Text.Read
-
+import qualified Data.Time.Calendar as C
 
 import TimeTableS.Types
 import TimeTableS.Settings
@@ -184,23 +184,23 @@ allSubjects gid = do
 
 
 --TODO: frequency = 2 to 4 per month, not only every week
-getLessonDates :: Lesson -> [Date]
+getLessonDates :: Lesson -> [C.Day]
 getLessonDates lesson = res where
   freq = 7
   subj = _subject lesson
   res =
-    case ((,) <$> _date_start lesson <*> _date_end lesson , _dates lesson) of
-      (Just (begin, end), Nothing) -> forceEither $ rangeDates
-                                      <$> (fromTimeTableFormat begin)
-                                      <*> (fromTimeTableFormat end)
-                                      <*> Right freq
-      (Nothing, Just dates) -> (forceEither . fromTimeTableFormat) <$> dates
-      (Nothing, Nothing) ->
-        error $ "Lesson without both dates and date_start: " ++ subj
+    case ((,)
+      <$> (fromTimeTableFormat <$> _date_start lesson)
+      <*> (fromTimeTableFormat <$> _date_end   lesson)
+      ,   (fromTimeTableFormat <$$> _dates     lesson)) of
+        (Just (begin, end), Nothing) -> [begin, (C.addDays freq begin) .. end]
+        (Nothing, Just dates) -> dates
+        (Nothing, Nothing) ->
+          error $ "Lesson without both dates and date_start: " ++ subj
 
 
 
-getLessonsOnDate :: String -> Date -> IO [Lesson]
+getLessonsOnDate :: String -> C.Day -> IO [Lesson]
 getLessonsOnDate gid date = do
   allLessons <- concat <$> lessons <$$> loadDays gid
   return
@@ -215,8 +215,8 @@ getLessonsOnDate gid date = do
 
 main :: IO ()
 main = do
-  todayDate <- getCurrentDate
-  todayLessons <- getLessonsOnDate "5259356" (addDaysToDate 1 todayDate)
+  todayDate <- getCurrentDay
+  todayLessons <- getLessonsOnDate "5259356" (C.addDays 1 todayDate)
   putStrLn $ concat
     $ map (\l -> _subject l ++ ":" ++ _time_start l ++ "\n")
     $ todayLessons
