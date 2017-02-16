@@ -210,8 +210,13 @@ showLessons =
       . map (\l -> "("  ++ showShortTypeLesson (_type l) ++ ")["
                         ++ _time_start l ++ "]"
                         ++ _subject l ++ "\n" ++ margin ++"|"
-                        ++ intercalate ("\n" ++ margin ++"|")
-                                (teacher_name <$> _teachers l) ++ "\n")
+                        ++ intercalate
+                              ("\n" ++ margin ++"|")
+                              (teacher_name <$> _teachers l)
+                        ++ "\n" ++ margin ++ "[["
+                        ++ (concat $ auditory_name <$> _auditories l)
+                        ++ "]]\n"
+            )
 
 
 --------------------------------------------------------------------------------
@@ -220,12 +225,14 @@ showLessons =
 data Command =
     Facs
   | Groups        Int
-  | SelectGroup   Int
+  | SelectGroup
   | SelectedGroup
   | Today
+  | Tomorrow
   | OnDay         Day
   | SinceToday    Int
   | SinceDay      Day Int
+  | Help
     deriving (Show, Eq)
 
 data Arg =
@@ -238,9 +245,9 @@ parseArg :: String -> Maybe Arg
 parseArg s =
   let splitted  = sequence $  parseInt <$> splitOn "." s
   in case length  <$> splitted of
-    Just 3  -> Just $ DArg $ fromTimeTableFormat s
+    Just 3  -> Just  $ DArg $ fromTimeTableFormat s
     Just 1  -> IArg <$> parseInt s
-    Nothing -> Nothing
+    Nothing -> Just $ SArg s
 
 
 preprocessCommand :: String -> (String, [Arg])
@@ -253,11 +260,15 @@ parseCommand :: String -> Maybe Command
 parseCommand cmd = case preprocessCommand cmd of
   ("facs", _)                         -> Just $ Facs
   ("groups", [IArg fid])              -> Just $ Groups fid
+  ("group", [])                       -> Just $ SelectedGroup
+  ("setgroup", [])                    -> Just $ SelectGroup
+  ("help", [IArg fid])                -> Just $ Help
   ("wassup", [DArg date, IArg days])  -> Just $ SinceDay date days
   ("wassup", [IArg days, DArg date])  -> Just $ SinceDay date days
   ("wassup", [DArg date])             -> Just $ OnDay date
   ("wassup", [IArg days])             -> Just $ SinceToday days
   ("wassup", [])                      -> Just $ Today
+  ("wassup", [SArg "tomorrow"])       -> Just $ Tomorrow
   _                                   -> Nothing
 
 executeCommand :: Command -> IO ()
@@ -270,12 +281,22 @@ executeCommand cmd = do
     Groups fid          -> loadGroups fid >>= showGroups
     SinceDay date days  -> getLessonsOnDate gid (addDays (toInteger days) date)
                             >>= showLessons
-    OnDay date          -> getLessonsOnDate gid date >>= showLessons
+    OnDay date          ->  putStrLn ("Lessons for " ++ show date)
+                            >> getLessonsOnDate gid date >>= showLessons
     SinceToday days     -> do
-                        let dates = [today .. addDays (toInteger days) today]
-                        lessons <- getLessonsOnDates gid dates
-                        showLessons lessons
-    Today               -> getLessonsOnDate gid today >>= showLessons
+                            let till = addDays (toInteger days) today
+                            putStrLn $ "Lessons till" ++ show till
+                            let dates = [today .. till]
+                            lessons <- getLessonsOnDates gid dates
+                            showLessons lessons
+    Today               ->  putStrLn "Lessons for today:"
+                            >> getLessonsOnDate gid today >>= showLessons
+    Tomorrow            ->  putStrLn "Lessons for tomorrow:"
+                            >>  getLessonsOnDate gid (addDays 1 today)
+                            >>= showLessons
+    Help                ->  putStrLn "not implemented"
+    SelectGroup         ->  selectGroupIO
+    SelectedGroup       ->  storedGroupId >>= print
 
 storedGroupId :: IO (Maybe String)
 storedGroupId = findSetting "group_id" <$> loadSettings "settings.txt"
@@ -285,14 +306,15 @@ storedGroupId = findSetting "group_id" <$> loadSettings "settings.txt"
 main :: IO ()
 main = do
   gid <- storedGroupId
-  unless (isJust gid) $ do
+  unless (isJust gid) $
     putStrLn "(!!) First you need to select your group:\n"
-    selectGroupIO
-    return ()
+    >> selectGroupIO
 
   maybeCmd <- parseCommand <$> getLine
-  unless (isJust maybeCmd)
-    (putStrLn "Unable to parse command" >> return ())
-  let cmd = fromJust maybeCmd
-  executeCommand cmd
-  putStrLn "done"
+  if not (isJust maybeCmd)
+  then do
+    putStrLn "Unable to parse command"
+  else do
+    let cmd = fromJust maybeCmd
+    executeCommand cmd
+    putStrLn "done"
