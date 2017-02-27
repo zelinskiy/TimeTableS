@@ -1,18 +1,21 @@
-{-# LANGUAGE RankNTypes, GADTs, TypeSynonymInstances #-}
 module Main where
 
 import Control.Monad
 import Data.List as List
-import Text.Read
 import Data.Time.Calendar
 import Data.Maybe
 import Data.List.Split (splitOn)
+import Data.Tuple
+import System.Environment
 
 import TimeTableS.Types
 import TimeTableS.Settings
 import TimeTableS.Utils
 import TimeTableS.Date
 import TimeTableS.LoadFromServer
+import TimeTableS.SelectGroup
+
+
 {-
 TODO:
 
@@ -25,78 +28,11 @@ Storing timetables locally
 Show
 IO + Maybe = MaybeT
 * Lenses
+* remove all these freaking error calls
+
+(!) please make $ stack build --pedantic before commit
 
 -}
-
---------------------------------------------------------------------------------
-
-
-
---------------------------------------------------------------------------------
-
-withShallowIds :: [(Int, a)] -> [((Int, Int), a)]
-withShallowIds rows = res
-  where realIds       = map fst rows
-        data_         = map snd rows
-        withSimpleIds = zipWith (\re si -> (re, si)) realIds [1..]
-        res           = zipWith (,) withSimpleIds data_
-
-idWithName :: [(Int, String)] -> String
-idWithName rows = concat $ map compact rows
-  where compact (index, name) = "(" ++ show index ++ ") " ++name ++ "\n"
-
-
-showFacs :: [Faculty] -> IO ()
-showFacs facs = do
-  let idNamePairs = map (\f -> (faculty_id f, faculty_name f)) facs
-  putStrLn "(id) Name"
-  putStrLn $ idWithName idNamePairs
-  putStrLn "enter selected_fid"
-
-selectFacId :: IO Int
-selectFacId = do
-  facs <- loadFaculties
-  showFacs facs
-  fid' <- getLine
-  let fid = case readMaybe fid' :: Maybe Int of
-        Just x  -> x
-        Nothing -> error "Unable to parse fid"
-
-  unless (fid `elem` map faculty_id facs) $ error "Unable to find fac"
-  return fid
-
---------------------------------------------------------------------------------
-
-showGroupsWithIds :: [(Int, Group)] -> IO ()
-showGroupsWithIds = putStrLn . concat . (pp <$>)
-  where pp (i, g) = "("++show i ++")"++(group_name g)++"\n"
-
-selectGroupIdOnFacIO :: Int -> IO Int
-selectGroupIdOnFacIO fid = do
-  gs <- orderBy group_name <$> loadGroups fid
-
-  let pairs = (\g -> (group_id g, group_name g)) <$> gs
-  let _withShallowIds = withShallowIds pairs
-  let simplifiedGids = map fst _withShallowIds
-  showGroupsWithIds $ zipWith (,) (snd <$> simplifiedGids) gs
-
-  gid1 <- getLine
-
-  let gid2 = case readMaybe gid1 :: Maybe Int of
-        Just x -> x
-        Nothing -> error $ "Unable to parse sgid " ++ gid1
-
-  let gid3 = case find (\(_, si) -> si == gid2) simplifiedGids of
-        Just (re, _) -> re
-        Nothing -> error $ "Cant find group " ++ show gid2
-  return gid3
-
-selectGroupIO :: IO ()
-selectGroupIO = do
-  fid <- selectFacId
-  gid <- selectGroupIdOnFacIO fid
-  putStrLn $ "Selected group " ++ show gid
-  saveSettings "settings.txt" [("group_id", show gid)]
 
 --------------------------------------------------------------------------------
 
@@ -120,17 +56,18 @@ getLessonDates lesson = res where
 
 
 getLessonsOnDate :: String -> Day -> IO [Lesson]
-getLessonsOnDate gid date = getLessonsOnDates gid [date]
+getLessonsOnDate gid date = (snd . head) <$> getLessonsOnDates gid [date]
 
-getLessonsOnDates :: String -> [Day] -> IO [Lesson]
+getLessonsOnDates :: String -> [Day] -> IO [(Day, [Lesson])]
 getLessonsOnDates gid dates = do
   allLessons <- concat <$> lessons <$$> loadDays gid
   return
-    $ map     fst
-    $ filter  (\(_, ds) -> or $ (==) <$> dates <*> ds)
-    $ map     (\l       -> (l, getLessonDates l))
+    $ groupTuples fst
+    $ map swap
+    $ concat
+    $ map (filter (\(_, d) -> elem d dates))
+    $ map (\l -> [(l,d) | d <- getLessonDates l])
     $ allLessons
-
 
 prettyPrintLesson :: Lesson -> String
 prettyPrintLesson l =
@@ -145,12 +82,15 @@ prettyPrintLesson l =
       ++ (concat $ auditory_name <$> _auditories l)
       ++ "]]\n"
 
-showLessons :: [Lesson] -> IO ()
-showLessons =
-    putStrLn
-  . concat
-  . map prettyPrintLesson
+prettyPrintLessonsWithDay :: (Day, [Lesson]) -> String
+prettyPrintLessonsWithDay (d, ls) = "\n{# " ++ show d ++ " #}\n\n"
+  ++ concatMap prettyPrintLesson ls
 
+showLessonsWithDays :: [(Day, [Lesson])] -> IO ()
+showLessonsWithDays = putStrLn . concat . map prettyPrintLessonsWithDay
+
+showLessons :: [Lesson] -> IO ()
+showLessons = putStrLn . concat . map prettyPrintLesson
 
 --------------------------------------------------------------------------------
 
@@ -207,25 +147,37 @@ executeCommand cmd = do
   --very unsafe
   gid <- fromJust <$> storedGroupId
   case cmd of
-    SinceDay date days  -> getLessonsOnDate gid (addDays (toInteger days) date)
-                            >>= showLessons
+    SinceDay date days  ->  do
+                            let till = addDays (toInteger days - 1) date
+                            putStrLn $ "Lessons from "  ++ show date
+                                  ++ " till " ++ show till ++ " ..."
+                            getLessonsOnDates gid [today .. till]
+                            >>= showLessonsWithDays
     OnDay date          ->  putStrLn ("Lessons for " ++ show date)
-                            >> getLessonsOnDate gid date >>= showLessons
-    SinceToday days     -> do
-                            let till = addDays (toInteger days) today
-                            putStrLn $ "Lessons till" ++ show till
-                            let dates = [today .. till]
-                            lsns <- getLessonsOnDates gid dates
-                            showLessons lsns
+                            >> getLessonsOnDate gid date
+                            >>= showLessons
+    SinceToday days     ->  do
+                            let till = addDays (toInteger days - 1) today
+                            putStrLn $ "Lessons till " ++ show till
+                            getLessonsOnDates gid [today .. till]
+                            >>= showLessonsWithDays
     Today               ->  putStrLn "Lessons for today..."
                             >> getLessonsOnDate gid today
                             >>= showLessons
     Tomorrow            ->  putStrLn "Lessons for tomorrow..."
                             >>  getLessonsOnDate gid (addDays 1 today)
                             >>= showLessons
-    Help                ->  putStrLn "not implemented"
     SelectGroup         ->  selectGroupIO
     SelectedGroup       ->  storedGroupId >>= print
+    Help                ->  putStrLn $ "\n[Commands]\n\n"
+          ++ "wassup                lessons for today\n"
+          ++ "wassup 10             lessons for next 10 days\n"
+          ++ "wassup 01.01.2017 10  lessons for next 10 days since 01.01.2017\n"
+          ++ "wassup 01.01.2017     lessons on specified date\n"
+          ++ "group                 show me current group\n"
+          ++ "setgroup              run interactive group selection\n"
+          ++ "help                  show this help\n"
+          ++ "*note                 arguments order is irrelenant (probably)\n"
 
 storedGroupId :: IO (Maybe String)
 storedGroupId = findSetting "group_id" <$> loadSettings "settings.txt"
@@ -244,7 +196,7 @@ main = do
     putStrLn "(!!) First you need to select your group:\n"
     >> selectGroupIO
 
-  maybeCmd <- parseCommand <$> getLine
+  maybeCmd <- parseCommand <$> concat <$> getArgs
   if not (isJust maybeCmd)
   then do
     putStrLn "Unable to parse command"

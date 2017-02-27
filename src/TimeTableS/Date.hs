@@ -3,14 +3,11 @@ module TimeTableS.Date (
   , getCurrentDay
 ) where
 
-import TimeTableS.Utils (parseInt, (<$$>))
+import TimeTableS.Utils (parseInt)
 
 import Data.Time.Clock (utctDay, getCurrentTime)
 import Data.Time.Calendar (
   Day,
-  toGregorian,
-  fromGregorian,
-  addDays,
   fromGregorianValid)
 
 import Data.List.Split (splitOn)

@@ -1,16 +1,22 @@
+
+
 module TimeTableS.Utils (
     (<$$>)
   , orderBy
   , concatWithElem
   , forceEither
   , parseInt
+  , groupTuples
   ) where
 
 import Data.List
 import Data.Char
 
-fmap2 f = fmap (fmap f)
-(<$$>) f x = f `fmap2` x
+(<$$>) :: (Functor f1, Functor f) => 
+      (a -> b)
+  ->  f (f1 a)
+  ->  f (f1 b)
+(<$$>) f x = fmap (fmap f) x
 infixl 5 <$$>
 
 orderBy :: Ord prop => (elem -> prop)  -- ^ selector to be applied
@@ -30,3 +36,12 @@ parseInt :: String -> Maybe Int
 parseInt n
     | all isDigit n = Just $ read n
     | otherwise     = Nothing
+
+
+--TODO: rewrite with clear mind
+groupTuples :: Ord c => ((a,b) -> c) -> [(a,b)] -> [(a, [b])]
+groupTuples f =
+    map (\(a,b) -> (head a,b))
+  . map unzip
+  . groupBy (\a b -> (f a) == (f b))
+  . sortBy  (\a b -> compare (f a) (f b))

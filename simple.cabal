@@ -21,6 +21,7 @@ library
                        , TimeTableS.Utils
                        , TimeTableS.Date
                        , TimeTableS.LoadFromServer
+                       , TimeTableS.SelectGroup
   build-depends:       base >= 4.7 && < 5
                        , aeson
                        , text
